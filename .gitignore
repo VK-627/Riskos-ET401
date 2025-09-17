@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment Variables
+#.env
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+
+# Build output
+dist/
+build/
+
+# Optional debug files
+npm-debug.log*

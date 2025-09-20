@@ -13,8 +13,16 @@ const userSchema = new mongoose.Schema(
         },
         password: {
             type: String,
-            required: true
-        }
+            required: false
+        },
+        googleId: { 
+            type: String, 
+            required: false
+        },
+        providers: {
+            type: [String],
+            default: ['local']
+        },
     },
     {
         timestamps: true

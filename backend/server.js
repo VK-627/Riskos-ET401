@@ -8,6 +8,8 @@ const newsRoutes = require("./routes/newsRoutes");
 const riskAnalysisRoutes = require("./routes/RiskAnalysisRoutes");
 const portfolioRoutes = require("./routes/portfolioRoutes");
 const app = express();
+const passport = require('passport');
+require('./config/passport'); // initialize strategies
 
 // Middleware
 app.use(express.json());
@@ -29,7 +31,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/news", newsRoutes);
 app.use("/api", riskAnalysisRoutes);
 app.use("/api/portfolio", portfolioRoutes);
-
+app.use(passport.initialize());
 // Example of getting current user (authentication should be handled properly)
 app.get("/api/auth/current-user", (req, res) => {
   const user = req.user; // Assuming user info is attached to the request (JWT or session)

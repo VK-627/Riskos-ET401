@@ -6,6 +6,7 @@ import { PortfolioDashboard } from './pages/PortfolioDashboard';
 import { Assessment } from './pages/Assessment';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
+import OAuthCallback from './pages/OAuthCallback';
 import AboutUsPage from './pages/AboutUsPage';
 import { Learn } from './pages/Learn';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -27,6 +28,7 @@ function AppContent() {
               <Route path="/" element={isLoggedIn ? <Assessment /> : <LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
+              <Route path="/oauth-callback" element={<OAuthCallback />} />
               <Route path="/learn" element={ <Learn />} />
               <Route path="/about" element={<AboutUsPage />} />
               <Route path= "/assessment" element={<Assessment />} />

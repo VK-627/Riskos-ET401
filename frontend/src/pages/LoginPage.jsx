@@ -46,6 +46,15 @@ const LoginPage = () => {
         >
           Login
         </button>
+        <div className="my-4 text-center">or</div>
+        <button
+          type="button"
+          onClick={() => { window.location.href = 'http://localhost:5000/api/auth/google'; }}
+          className="w-full bg-white border p-2 rounded flex items-center justify-center gap-2 hover:bg-gray-50"
+        >
+          <img src="/google-icon.svg" alt="Google" className="w-5 h-5" />
+          Continue with Google
+        </button>
       </form>
     </div>
   );

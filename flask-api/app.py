@@ -225,11 +225,16 @@ def predict_portfolio():
 
         # Call the portfolio prediction function
         try:
+            # read allowed models from env; default to fast production-safe models
+            enabled_models = os.getenv('ENABLED_MODELS', 'RandomForest,Trend,Lag1').split(',')
+            enabled_models = [m.strip() for m in enabled_models if m.strip()]
+
             output = predict_portfolio_risk(
                 stock_file_mapping,
                 portfolio_stocks,
                 forecast_days=forecast_days,
-                confidence_level=confidence_level
+                confidence_level=confidence_level,
+                allowed_models=enabled_models
             )
             print("Prediction output:", output)
             # If the prediction function returned an error payload, surface it as a 400
@@ -261,6 +266,7 @@ def get_available_stocks():
         print(f"Error getting available stocks: {str(e)}")
         traceback.print_exc()
         return jsonify({"error": f"Failed to get available stocks: {str(e)}"}), 500
+
 
 # Add a test route to verify the API is running
 @app.route('/test', methods=['GET'])

@@ -6,11 +6,13 @@ import os
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from statsmodels.tsa.arima.model import ARIMA
-from arch import arch_model
-from scipy import stats
 from utils.data_providers import fetch_close_series, get_current_price
 import warnings
+import json
+try:
+    import joblib
+except Exception:
+    joblib = None
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -71,7 +73,7 @@ def normalize_stock_symbol(symbol):
     s = s.replace('.', '').replace(' ', '')
     return s
 
-def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=30, confidence_level=0.95):
+def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=30, confidence_level=0.95, allowed_models=None):
     """Main prediction function."""
     # Debug the input parameters
     print(f"predict_portfolio_risk called with:")
@@ -186,6 +188,64 @@ def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=3
         else:
             stock_weights[symbol] = 0
 
+    # helper metrics functions
+    def _mae(a, p):
+        return float(np.mean(np.abs(p - a)))
+
+    def _rmse(a, p):
+        return float(np.sqrt(np.mean((p - a) ** 2)))
+
+    def _mase(a, p, insample):
+        # Mean Absolute Scaled Error relative to in-sample naive (lag1)
+        eps = 1e-8
+        naive_err = np.mean(np.abs(np.diff(insample))) if len(insample) > 1 else eps
+        return float(np.mean(np.abs(p - a)) / max(eps, naive_err))
+
+    def _classification_metrics(a, p):
+        # binary directional metrics: positive return -> 1, else 0
+        a_bin = (np.array(a) > 0).astype(int)
+        p_bin = (np.array(p) > 0).astype(int)
+        tp = int(np.sum((a_bin == 1) & (p_bin == 1)))
+        fp = int(np.sum((a_bin == 0) & (p_bin == 1)))
+        fn = int(np.sum((a_bin == 1) & (p_bin == 0)))
+        tn = int(np.sum((a_bin == 0) & (p_bin == 0)))
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        return {'precision': float(precision), 'recall': float(recall), 'f1': float(f1), 'tp': tp, 'fp': fp, 'fn': fn, 'tn': tn}
+
+
+    def simple_trend_forecast(values):
+        # Linear extrapolation on numeric array-like values
+        try:
+            y = np.asarray(values)
+            if len(y) < 3:
+                return float(y[-1])
+            x = np.arange(len(y)).astype(float)
+            coef = np.polyfit(x, y, 1)
+            next_x = float(len(y))
+            return float(np.polyval(coef, next_x))
+        except Exception:
+            return float(values[-1])
+
+    # Try to load a persisted RandomForest model if available (optional)
+    rf_model = None
+    rf_per_symbol = {}
+    if allowed_models is None:
+        allowed_models = ['RandomForest', 'Trend', 'Lag1']
+
+    if 'RandomForest' in allowed_models and joblib is not None:
+        # load per-symbol persisted RFs from persisted_models folder if present
+        persisted_dir = os.path.join(os.path.dirname(__file__), 'persisted_models')
+        if os.path.isdir(persisted_dir):
+            for fname in os.listdir(persisted_dir):
+                if fname.endswith('_rf.pkl'):
+                    sym = fname.split('_')[0].lower()
+                    try:
+                        rf_per_symbol[sym] = joblib.load(os.path.join(persisted_dir, fname))
+                    except Exception:
+                        pass
+
     # Calculate metrics and forecasts
     for symbol in stock_weights.keys():
         # Find the matching stock in portfolio_stocks
@@ -226,29 +286,75 @@ def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=3
             current_price = 0
 
         try:
-            # Forecast returns with ARIMA
-            arima_model = ARIMA(returns, order=(1, 0, 1))
-            arima_fit = arima_model.fit()
-            forecast_returns = arima_fit.forecast(steps=forecast_days)
+            # Perform a quick one-step backtest on the last 20% of the series
+            series = returns.dropna()
+            n = len(series)
+            if n < 30:
+                raise ValueError('Not enough data for backtest')
+            start_idx = int(n * 0.8)
+            actuals = []
+            preds_trend = []
+            preds_lag1 = []
+            preds_rf = []
+            insample = series.iloc[:start_idx]
 
-            # Forecast volatility with GARCH
-            garch_model = arch_model(returns, vol='Garch', p=1, q=1)
-            garch_fit = garch_model.fit(disp='off')
-            forecast_result = garch_fit.forecast(horizon=forecast_days, reindex=False)
-            forecast_vol = np.sqrt(forecast_result.variance.values[-1, :])
+            for t in range(start_idx, n - 1):
+                hist = series.iloc[:t]
+                next_actual = float(series.iloc[t + 1])
+                actuals.append(next_actual)
+                # Trend prediction
+                try:
+                    trend_pred = simple_trend_forecast(hist.values)
+                except Exception:
+                    trend_pred = float(hist.iloc[-1])
+                preds_trend.append(trend_pred)
+                # Lag1 prediction
+                lag1_pred = float(hist.iloc[-1])
+                preds_lag1.append(lag1_pred)
+                # RF prediction if model available (optional)
+                if rf_model is not None:
+                    try:
+                        # Build very simple feature vector: last 5 returns
+                        lags = np.array(hist.tail(5).tolist()[::-1])
+                        if len(lags) < 5:
+                            lags = np.pad(lags, (0, 5 - len(lags)), 'constant')
+                        feat = lags.reshape(1, -1)
+                        rf_p = float(rf_model.predict(feat)[0])
+                    except Exception:
+                        rf_p = trend_pred
+                    preds_rf.append(rf_p)
 
-            # Calculate risk metrics
-            z_score = stats.norm.ppf(1 - confidence_level)
-            var_pct = forecast_returns.mean() + (z_score * forecast_vol.mean())
-            var_amount = position_value * (var_pct / 100)
-            
-            cvar_z = stats.norm.pdf(z_score) / (1 - confidence_level)
-            cvar_pct = forecast_returns.mean() + (forecast_vol.mean() * cvar_z)
-            cvar_amount = position_value * (cvar_pct / 100)
-            
-            sharpe_ratio = (forecast_returns.mean() - (0.05 / 252)) / forecast_vol.mean()
+            actuals_arr = np.array(actuals)
+            preds_trend_arr = np.array(preds_trend)
+            preds_lag1_arr = np.array(preds_lag1)
 
-            # Store results with proper JSON serialization
+            model_performance = {
+                'Trend': {
+                    'MAE': _mae(actuals_arr, preds_trend_arr),
+                    'RMSE': _rmse(actuals_arr, preds_trend_arr),
+                    'MASE': _mase(actuals_arr, preds_trend_arr, insample.values),
+                    'classification': _classification_metrics(actuals_arr, preds_trend_arr)
+                },
+                'Lag1': {
+                    'MAE': _mae(actuals_arr, preds_lag1_arr),
+                    'RMSE': _rmse(actuals_arr, preds_lag1_arr),
+                    'MASE': _mase(actuals_arr, preds_lag1_arr, insample.values),
+                    'classification': _classification_metrics(actuals_arr, preds_lag1_arr)
+                }
+            }
+
+            if rf_model is not None and len(preds_rf) > 0:
+                preds_rf_arr = np.array(preds_rf)
+                model_performance['RandomForest'] = {
+                    'MAE': _mae(actuals_arr, preds_rf_arr),
+                    'RMSE': _rmse(actuals_arr, preds_rf_arr),
+                    'MASE': _mase(actuals_arr, preds_rf_arr, insample.values),
+                    'classification': _classification_metrics(actuals_arr, preds_rf_arr)
+                }
+
+            # Use Trend forecast mean as a simple multi-day forecast proxy
+            forecast_return = float(np.mean(preds_trend_arr)) if len(preds_trend_arr) > 0 else 0.0
+
             stock_results[matching_stock.get('stockName', symbol)] = {
                 'quantity': int(quantity),
                 'current_price': float(current_price) if current_price is not None else 0,
@@ -257,12 +363,9 @@ def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=3
                 'weight': float(stock_weights[symbol]),
                 'profit_loss': float((current_price - buy_price) * quantity) if current_price is not None else 0,
                 'roi': float(((current_price - buy_price) / buy_price) * 100) if buy_price > 0 and current_price is not None else 0,
-                'var_amount': float(var_amount),
-                'cvar_amount': float(cvar_amount),
-                'sharpe_ratio': float(sharpe_ratio),
                 'max_drawdown': float(calculate_max_drawdown(returns)),
-                'forecast_return': float(forecast_returns.mean()),
-                'forecast_volatility': float(forecast_vol.mean())
+                'forecast_return': forecast_return,
+                'performance': model_performance
             }
 
         except Exception as e:

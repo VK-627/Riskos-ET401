@@ -1,0 +1,35 @@
+{
+  "file": "F:\\Riskos-ET401\\flask-api\\Scripts\\ADANIENT.NS_data.csv",
+  "price_col": null,
+  "n_points": 2514,
+  "start_idx": 2011,
+  "per_model": {
+    "Naive(0)": {
+      "MAE": 0.017844189800077993,
+      "RMSE": 0.03143593818109167,
+      "MAPE": 1.0,
+      "HitRate": 0.0,
+      "Count": 502,
+      "total_seconds": 4.8800005970406346e-05,
+      "avg_seconds_per_step": 9.72111672717258e-08
+    },
+    "Lag1": {
+      "MAE": 0.02808194227079792,
+      "RMSE": 0.045404116552352276,
+      "MAPE": 4.8584627064166614,
+      "HitRate": 0.5159362549800797,
+      "Count": 502,
+      "total_seconds": 0.0018173999724240275,
+      "avg_seconds_per_step": 3.6203186701673856e-06
+    },
+    "Trend": {
+      "MAE": 0.01824086779565967,
+      "RMSE": 0.031476578282135764,
+      "MAPE": 1.6574732188917114,
+      "HitRate": 0.49800796812749004,
+      "Count": 502,
+      "total_seconds": 0.06397550001747732,
+      "avg_seconds_per_step": 0.00012744123509457632
+    }
+  }
+}

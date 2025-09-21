@@ -10,7 +10,7 @@ import {
   Legend,
   ReferenceLine
 } from 'recharts';
-import { StockTooltip } from './StockTooltip';
+import { StockRow } from './StockRow';
 
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#8dd1e1', '#a4de6c', '#d0ed57', '#ffc0cb'];
 
@@ -129,11 +129,10 @@ const AdvancedRiskCharts = ({ result, inputSummary = [] }) => {
     };
   });
 
-  // FIXED: Use correct keys from your backend
+  // FIXED: Use correct keys from your backend (removed Max Drawdown)
   const riskMetrics = [
     { name: 'VaR', value: Math.abs(portfolio['VaR (₹)'] || 0) },
-    { name: 'CVaR', value: Math.abs(portfolio['CVaR (₹)'] || 0) },
-    { name: 'Max Drawdown', value: Math.abs(portfolio['Max Drawdown'] || 0) * 100 }
+    { name: 'CVaR', value: Math.abs(portfolio['CVaR (₹)'] || 0) }
   ];
 
   const portfolioValue = portfolio['Total Portfolio Value (₹)'] || 0;
@@ -141,6 +140,18 @@ const AdvancedRiskCharts = ({ result, inputSummary = [] }) => {
   const totalCvar = Math.abs(portfolio['CVaR (₹)'] || 0);
   const sharpeRatio = portfolio['Sharpe Ratio'] || 0;
   const maxDrawdown = Math.abs(portfolio['Max Drawdown'] || 0);
+  
+  // Calculate current portfolio value using live prices
+  const currentPortfolioValue = basePositions.reduce((total, position) => {
+    const livePrice = livePrices[position.key];
+    return total + (position.quantity * (livePrice || position.buyPrice));
+  }, 0);
+  
+  const totalInvestedValue = basePositions.reduce((total, position) => {
+    return total + (position.quantity * position.buyPrice);
+  }, 0);
+  
+  const totalProfitLoss = currentPortfolioValue - totalInvestedValue;
 
   // Determine risk level based on actual data
   const getRiskLevel = () => {
@@ -152,54 +163,44 @@ const AdvancedRiskCharts = ({ result, inputSummary = [] }) => {
   return (
     <div className="space-y-6">
 
-      {/* Positions summary with live price and per-stock tooltip */}
+      {/* Individual Stock Performance Table */}
       <div className="bg-white p-6 rounded-lg shadow-lg">
-        <h3 className="text-xl font-semibold mb-4">Positions</h3>
+        <h3 className="text-xl font-semibold mb-4">Individual Stock Performance</h3>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-600">
+              <tr className="text-left text-gray-600 border-b">
                 <th className="p-2">Stock</th>
                 <th className="p-2">Quantity</th>
-                <th className="p-2">Buy Price (₹)</th>
-                <th className="p-2">Current Price (₹)</th>
-                <th className="p-2">Info</th>
+                <th className="p-2">Buy Price</th>
+                <th className="p-2">Current Price</th>
+                <th className="p-2">Invested Value</th>
+                <th className="p-2">Current Value</th>
+                <th className="p-2">P/L</th>
+                <th className="p-2">P/L %</th>
               </tr>
             </thead>
             <tbody>
-              {basePositions.map((p, idx) => {
-                const indiv = individual[p.name] || individual[`${p.base}.NS`] || individual[p.base] || {};
-                const tooltipStock = {
-                  name: p.base,
-                  'Value at Risk (VaR)': Math.abs(indiv['VaR (₹)'] || 0),
-                  'Conditional VaR (CVaR)': Math.abs(indiv['CVaR (₹)'] || 0),
-                  'Sharpe Ratio': indiv['Sharpe Ratio'] || 0,
-                  'Maximum Drawdown': Math.abs(indiv['Max Drawdown'] || 0) * 100,
-                };
-                const cp = livePrices[p.key];
-                const [show, setShow] = React.useState(false);
+              {basePositions.map((position, index) => {
+                const livePrice = livePrices[position.key] || position.buyPrice;
+                const investedValue = position.quantity * position.buyPrice;
+                const currentValue = position.quantity * livePrice;
+                const profitLoss = currentValue - investedValue;
+                const profitLossPercent = investedValue > 0 ? (profitLoss / investedValue) * 100 : 0;
+                
                 return (
-                  <tr key={`${p.key}-${idx}`} className="border-t">
-                    <td className="p-2 font-medium">{p.name}</td>
-                    <td className="p-2">{p.quantity}</td>
-                    <td className="p-2">{formatCurrency(p.buyPrice)}</td>
-                    <td className="p-2">{cp ? formatCurrency(cp) : '—'}</td>
-                    <td className="p-2">
-                      <div className="relative inline-block">
-                        <button
-                          aria-label="Stock risk info"
-                          onMouseEnter={() => setShow(true)}
-                          onMouseLeave={() => setShow(false)}
-                          className="w-6 h-6 rounded-full bg-yellow-100 text-yellow-700 flex items-center justify-center hover:bg-yellow-200"
-                        >
-                          !
-                        </button>
-                        {show && (
-                          <div className="absolute z-10 mt-2 left-0">
-                            <StockTooltip stock={tooltipStock} />
-                          </div>
-                        )}
-                      </div>
+                  <tr key={`perf-${position.key}-${index}`} className="border-b">
+                    <td className="p-2 font-medium">{position.name}</td>
+                    <td className="p-2">{position.quantity}</td>
+                    <td className="p-2">{formatCurrency(position.buyPrice)}</td>
+                    <td className="p-2">{formatCurrency(livePrice)}</td>
+                    <td className="p-2">{formatCurrency(investedValue)}</td>
+                    <td className="p-2">{formatCurrency(currentValue)}</td>
+                    <td className={`p-2 ${profitLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(profitLoss)}
+                    </td>
+                    <td className={`p-2 ${profitLossPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {profitLossPercent.toFixed(2)}%
                     </td>
                   </tr>
                 );
@@ -208,6 +209,7 @@ const AdvancedRiskCharts = ({ result, inputSummary = [] }) => {
           </table>
         </div>
       </div>
+
 
       {/* Risk Overview Gauges */}
       <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -263,22 +265,38 @@ const AdvancedRiskCharts = ({ result, inputSummary = [] }) => {
       </div>
 
       {/* Portfolio Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg">
-          <h4 className="text-sm font-medium opacity-90">Total Value</h4>
-          <p className="text-2xl font-bold">{formatCurrency(portfolioValue)}</p>
-        </div>
-        <div className="bg-gradient-to-r from-red-500 to-red-600 text-white p-6 rounded-lg shadow-lg">
-          <h4 className="text-sm font-medium opacity-90">Value at Risk</h4>
-          <p className="text-2xl font-bold">{formatCurrency(totalVar)}</p>
-        </div>
-        <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg">
-          <h4 className="text-sm font-medium opacity-90">Conditional VaR</h4>
-          <p className="text-2xl font-bold">{formatCurrency(totalCvar)}</p>
-        </div>
-        <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-lg">
-          <h4 className="text-sm font-medium opacity-90">Sharpe Ratio</h4>
-          <p className="text-2xl font-bold">{sharpeRatio.toFixed(3)}</p>
+      <div className="bg-white p-6 rounded-lg shadow-lg">
+        <h3 className="text-xl font-semibold mb-4">Portfolio Summary</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="bg-gray-50 p-4 rounded-lg border">
+            <h4 className="text-sm font-medium text-gray-600 mb-1">Invested Value</h4>
+            <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalInvestedValue)}</p>
+          </div>
+          <div className="bg-gray-50 p-4 rounded-lg border">
+            <h4 className="text-sm font-medium text-gray-600 mb-1">Current Value</h4>
+            <p className="text-2xl font-bold text-gray-900">{formatCurrency(currentPortfolioValue)}</p>
+          </div>
+          <div className={`p-4 rounded-lg border ${totalProfitLoss >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+            <h4 className="text-sm font-medium text-gray-600 mb-1">Total Profit/Loss</h4>
+            <p className={`text-2xl font-bold ${totalProfitLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {formatCurrency(totalProfitLoss)}
+            </p>
+            <p className={`text-sm ${totalProfitLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {totalInvestedValue > 0 ? `${((totalProfitLoss / totalInvestedValue) * 100).toFixed(2)}%` : '0.00%'}
+            </p>
+          </div>
+          <div className="bg-gray-50 p-4 rounded-lg border">
+            <h4 className="text-sm font-medium text-gray-600 mb-1">Value at Risk</h4>
+            <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalVar)}</p>
+          </div>
+          <div className="bg-gray-50 p-4 rounded-lg border">
+            <h4 className="text-sm font-medium text-gray-600 mb-1">Conditional VaR</h4>
+            <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalCvar)}</p>
+          </div>
+          <div className="bg-gray-50 p-4 rounded-lg border">
+            <h4 className="text-sm font-medium text-gray-600 mb-1">Sharpe Ratio</h4>
+            <p className="text-2xl font-bold text-gray-900">{sharpeRatio.toFixed(3)}</p>
+          </div>
         </div>
       </div>
     </div>

@@ -23,6 +23,36 @@ const userSchema = new mongoose.Schema(
             type: [String],
             default: ['local']
         },
+    savedPortfolio: [{
+        stockName: String,
+        quantity: Number,
+        buyPrice: Number,
+        addedAt: {
+            type: Date,
+            default: Date.now
+        }
+    }],
+        calculationHistory: [{
+            calculationType: {
+                type: String,
+                enum: ['current_risk', 'forecast_risk']
+            },
+            portfolio: [{
+                stockName: String,
+                quantity: Number,
+                buyPrice: Number
+            }],
+            confidenceLevel: Number,
+            forecastDays: Number,
+            results: {
+                portfolio_summary: mongoose.Schema.Types.Mixed,
+                individual_stocks: mongoose.Schema.Types.Mixed
+            },
+            calculatedAt: {
+                type: Date,
+                default: Date.now
+            }
+        }]
     },
     {
         timestamps: true

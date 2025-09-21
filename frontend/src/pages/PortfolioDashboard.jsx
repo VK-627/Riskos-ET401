@@ -11,7 +11,7 @@ export function PortfolioDashboard() {
   const fetchPortfolio = async () => {
     try {
       const token = localStorage.getItem("token"); // Assuming you store token in localStorage
-      const response = await axios.get("/api/portfolio", {
+      const response = await axios.get("/api/portfolio/add-portfolio", {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -36,7 +36,7 @@ export function PortfolioDashboard() {
 
     try {
       const token = localStorage.getItem("token");
-      await axios.post("/api/portfolio", newStock, {
+      await axios.post("/api/portfolio/add-stock", newStock, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -50,15 +50,16 @@ export function PortfolioDashboard() {
   };
 
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">My Portfolio</h2>
+    <div className="w-full max-w-7xl mx-auto p-4 lg:p-6 space-y-6">
+      <h1 className="text-3xl font-bold">📊 My Portfolio</h1>
 
       {/* Chart and Table */}
       <PortfolioChart holdings={portfolio} />  {/* passing real data */}
       <PortfolioTable holdings={portfolio} />  {/* passing real data */}
 
       {/* Stock Search */}
-      <div className="mt-8">
+      <div className="bg-white p-6 rounded-lg shadow-lg">
+        <h3 className="text-xl font-semibold mb-4">Add New Stock</h3>
         <StockSearch onAdd={handleAddStock} />
       </div>
     </div>

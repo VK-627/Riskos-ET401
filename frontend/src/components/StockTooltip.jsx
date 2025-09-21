@@ -46,6 +46,10 @@ const StockTooltip = ({ stock }) => {
   const maxDrawdown = getValueWithFallback(stock, ["Max Drawdown", "maxDrawdown", "Maximum Drawdown"]);
   const returnValue = getValueWithFallback(stock, ["Return", "return", "returnPct", "Portfolio Return"]);
   const weight = getValueWithFallback(stock, ["Weight", "weight", "allocation", "Allocation"]);
+  const investedValue = getValueWithFallback(stock, ["Invested Value", "investedValue", "Invested"]);
+  const currentValue = getValueWithFallback(stock, ["Current Value", "currentValue", "Current"]);
+  const profitLoss = getValueWithFallback(stock, ["Profit/Loss", "profitLoss", "Profit Loss"]);
+  const profitLossPercent = getValueWithFallback(stock, ["Profit/Loss %", "profitLossPercent", "Profit Loss %"]);
 
   return (
     <div className="bg-white p-3 rounded-lg shadow-lg max-w-xs w-full">
@@ -65,10 +69,34 @@ const StockTooltip = ({ stock }) => {
           <span className="text-gray-600">Sharpe:</span>
           <span className="font-medium">{sharpe !== "N/A" ? Number(sharpe).toFixed(2) : "N/A"}</span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-gray-600">Max Drawdown:</span>
-          <span className="font-medium">{formatPercentage(maxDrawdown)}</span>
-        </div>
+        {investedValue !== "N/A" && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Invested Value:</span>
+            <span className="font-medium">{formatCurrency(investedValue)}</span>
+          </div>
+        )}
+        {currentValue !== "N/A" && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Current Value:</span>
+            <span className="font-medium">{formatCurrency(currentValue)}</span>
+          </div>
+        )}
+        {profitLoss !== "N/A" && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Profit/Loss:</span>
+            <span className={`font-medium ${parseFloat(profitLoss) >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {formatCurrency(profitLoss)}
+            </span>
+          </div>
+        )}
+        {profitLossPercent !== "N/A" && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">P/L %:</span>
+            <span className={`font-medium ${parseFloat(profitLossPercent) >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {formatPercentage(profitLossPercent)}
+            </span>
+          </div>
+        )}
         {returnValue !== "N/A" && (
           <div className="flex justify-between">
             <span className="text-gray-600">Return:</span>

@@ -98,8 +98,8 @@ const analyzePortfolio = async (req, res) => {
       headers: {
         'Content-Type': 'application/json'
       },
-      // Increase timeout if needed for complex calculations
-      timeout: 30000 // 30 seconds
+      // Increase timeout for ML model processing
+      timeout: 600000 // 10 minutes for ML model processing (models can take 5-8 minutes)
     });
 
     const result = response.data;

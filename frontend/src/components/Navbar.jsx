@@ -1,20 +1,28 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
 import logo from "../assets/riskosalt.png";
 
-const NavLink = ({ children, to }) => (
-  <Link
-    to={to}
-    className="px-4 py-2 text-sm font-medium rounded-md text-gray-700 hover:bg-gray-100"
-  >
-    {children}
-  </Link>
-);
+const NavLink = ({ children, to, currentPath }) => {
+  const isActive = currentPath === to || (to === "/" && currentPath === "/");
+  return (
+    <Link
+      to={to}
+      className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+        isActive 
+          ? "text-blue-600 bg-blue-50 border-b-2 border-blue-600" 
+          : "text-gray-700 hover:bg-gray-100"
+      }`}
+    >
+      {children}
+    </Link>
+  );
+};
 
 export function Navbar() {
   const { isLoggedIn, logout, user } = useContext(AuthContext);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = () => {
     logout();
@@ -33,10 +41,11 @@ export function Navbar() {
 
              {/* Navigation Links */}
              <div className="hidden sm:flex sm:space-x-6">
-              <NavLink to="/news">News</NavLink>
-              <NavLink to="/assessment">Risk Analysis </NavLink>
-              <NavLink to="/learn">Learn</NavLink>
-              <NavLink to="/about">About Us</NavLink>
+              <NavLink to="/news" currentPath={location.pathname}>News</NavLink>
+              <NavLink to="/assessment" currentPath={location.pathname}>Risk Analysis</NavLink>
+              <NavLink to="/history" currentPath={location.pathname}>History</NavLink>
+              <NavLink to="/learn" currentPath={location.pathname}>Learn</NavLink>
+              <NavLink to="/about" currentPath={location.pathname}>About Us</NavLink>
             </div>
           </div>
 

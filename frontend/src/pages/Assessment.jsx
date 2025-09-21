@@ -4,7 +4,7 @@ import  { StockTooltip } from '../components/StockTooltip';
 import { FaPlusCircle, FaMinusCircle } from "react-icons/fa";
 import { useAuth } from "../context/AuthContext";
 import { ForecastVisualizations } from "./ForecastVisualizations";
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { StructuredRiskData } from '../components/StructuredRiskData';
 import { AdvancedRiskCharts } from '../components/AdvancedRiskCharts';
@@ -24,7 +24,9 @@ const Assessment = () => {
   const [availableStocks, setAvailableStocks] = useState([]);
   const [openSuggestIndex, setOpenSuggestIndex] = useState(null);
   const [filteredOptions, setFilteredOptions] = useState([]);
+  const [savingPortfolio, setSavingPortfolio] = useState(false);
   const { user } = useAuth();
+  const location = useLocation();
 
   useEffect(() => {
     const fetchStocks = async () => {
@@ -39,6 +41,22 @@ const Assessment = () => {
     };
     fetchStocks();
   }, []);
+
+  // Handle prefill data from Home page
+  useEffect(() => {
+    if (location.state?.prefillData) {
+      // Handle both old format (with stocks array) and new format (direct array)
+      const prefillData = location.state.prefillData;
+      if (Array.isArray(prefillData)) {
+        setStockData(prefillData);
+      } else if (prefillData.stocks && Array.isArray(prefillData.stocks)) {
+        setStockData(prefillData.stocks);
+      }
+    }
+    if (location.state?.activeMode) {
+      setActiveMode(location.state.activeMode);
+    }
+  }, [location.state]);
 
   
   const handleAddStock = () => {
@@ -134,14 +152,47 @@ const Assessment = () => {
           headers: {
             Authorization: `Bearer ${token}`,
           },
+          timeout: 600000, // 10 minutes timeout for ML model processing
         }
       );
       setResult(response.data);
+      
+      // Auto-save calculation to history
+      try {
+        const calculationData = {
+          calculationType: activeMode === "forecast" ? "forecast_risk" : "current_risk",
+          portfolio: stockData,
+          confidenceLevel: parseInt(confidenceLevel),
+          forecastDays: activeMode === "forecast" ? parseInt(forecastDays) : null,
+          results: response.data
+        };
+
+        await axios.post(
+          "http://localhost:5000/api/portfolio/save-calculation",
+          calculationData,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        console.log("Calculation automatically saved to history");
+      } catch (saveError) {
+        console.error("Error auto-saving calculation:", saveError);
+        // Don't show error to user for auto-save failures
+      }
     } catch (error) {
       console.error("Error calculating risk:", error);
       const data = error.response?.data;
-      const message = data?.error || data?.message || "An error occurred. Please try again.";
-      setError(message);
+      
+      // Handle timeout specifically for forecast mode
+      if (error.code === 'ECONNABORTED' && activeMode === 'forecast') {
+        setError("ML models are taking longer than expected. This is normal for complex forecasting. Please try again or contact support if the issue persists.");
+      } else {
+        const message = data?.error || data?.message || "An error occurred. Please try again.";
+        setError(message);
+      }
+      
       if (Array.isArray(data?.availableStocks) && data.availableStocks.length) {
         setAvailableStocks(data.availableStocks);
       }
@@ -149,10 +200,49 @@ const Assessment = () => {
       setLoading(false);
     }
   };
-  
+
+  const handleSavePortfolio = async () => {
+    if (stockData.length === 0) {
+      setError("No stocks to save");
+      return;
+    }
+
+    setSavingPortfolio(true);
+    try {
+      const token = user?.token || localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token found");
+      }
+
+      // Save each stock individually
+      for (const stock of stockData) {
+        await axios.post(
+          "http://localhost:5000/api/portfolio/add-stock",
+          {
+            stockName: stock.stockName,
+            quantity: stock.quantity,
+            buyPrice: stock.buyPrice
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+      }
+
+      alert("Portfolio saved successfully!");
+    } catch (error) {
+      console.error("Error saving portfolio:", error);
+      setError("Failed to save portfolio");
+    } finally {
+      setSavingPortfolio(false);
+    }
+  };
+
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="w-full max-w-7xl mx-auto p-4 lg:p-6 space-y-6">
       <h1 className="text-3xl font-bold">📈 Portfolio Risk Analysis</h1>
 
       <div className="bg-white p-6 rounded-lg shadow-md">
@@ -280,23 +370,47 @@ const Assessment = () => {
           </div>
         </div>
 
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className={`mt-4 ${loading ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"} text-white px-4 py-2 rounded flex items-center justify-center`}
-        >
-          {loading ? (
-            <>
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Processing...
-            </>
-          ) : (
-            "Submit"
-          )}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3 mt-4">
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className={`flex-1 ${loading ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"} text-white px-4 py-2 rounded flex items-center justify-center`}
+          >
+            {loading ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                {activeMode === 'forecast' ? ' AI Processing...' : 'Processing...'}
+              </>
+            ) : (
+              "Submit"
+            )}
+          </button>
+          
+          <button
+            onClick={handleSavePortfolio}
+            disabled={savingPortfolio || stockData.length === 0}
+            className={`px-4 py-2 rounded flex items-center justify-center ${
+              savingPortfolio || stockData.length === 0 
+                ? "bg-gray-400 cursor-not-allowed" 
+                : "bg-blue-600 hover:bg-blue-700"
+            } text-white`}
+          >
+            {savingPortfolio ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Saving...
+              </>
+            ) : (
+              "💾 Save Portfolio"
+            )}
+          </button>
+        </div>
       </div>
 
       {result && activeMode === "calculate" && (
@@ -307,7 +421,7 @@ const Assessment = () => {
 
       {result && activeMode === "forecast" && (
         <div className="mt-6">
-          <ForecastVisualizations result={result} />
+          <ForecastVisualizations result={result} inputSummary={stockData} />
         </div>
       )}
     </div>

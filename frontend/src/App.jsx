@@ -2,7 +2,8 @@ import { Routes, Route } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
 import { StockMarketNews } from './pages/StockMarketNews';
 import { LandingPage } from './pages/LandingPage';
-import { PortfolioDashboard } from './pages/PortfolioDashboard';
+import { Home } from './pages/Home';
+import { History } from './pages/History';
 import { Assessment } from './pages/Assessment';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
@@ -19,21 +20,20 @@ function AppContent() {
   return (
       <div className="flex flex-col min-h-screen bg-gray-50">
         <Navbar />
-        <main className="flex-grow">
+        <main className="flex-grow w-full">
           {/* Wrap Routes in ErrorBoundary for global error handling */}
           <ErrorBoundary>
             <Routes>
               <Route path="/news" element={<StockMarketNews />} />
-              <Route path="/portfolio" element={<PortfolioDashboard />} />
-              <Route path="/" element={isLoggedIn ? <Assessment /> : <LandingPage />} />
+              <Route path="/history" element={<History />} />
+              <Route path="/" element={isLoggedIn ? <Home /> : <LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
               <Route path="/oauth-callback" element={<OAuthCallback />} />
               <Route path="/learn" element={ <Learn />} />
               <Route path="/about" element={<AboutUsPage />} />
-              <Route path= "/assessment" element={<Assessment />} />
-
-          </Routes>
+              <Route path="/assessment" element={<Assessment />} />
+            </Routes>
         </ErrorBoundary>
       </main>
 

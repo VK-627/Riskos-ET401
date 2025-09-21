@@ -38,13 +38,36 @@ def get_csv_file_mapping(folder_path):
     return file_mapping
 
 def calculate_var(returns, portfolio_value, confidence_level=95):
-    var_threshold = np.percentile(returns, 100 - confidence_level)
-    return round(var_threshold * portfolio_value, 2)
+    """Calculate Value at Risk (VaR) - the maximum expected loss"""
+    if len(returns) == 0:
+        return 0.0
+    
+    # Convert confidence level to percentile (e.g., 95% -> 5th percentile for losses)
+    percentile = 100 - confidence_level
+    var_threshold = np.percentile(returns, percentile)
+    
+    # VaR is the potential loss, so it should be negative
+    # Multiply by portfolio value to get absolute loss amount
+    var_amount = abs(var_threshold * portfolio_value)
+    return round(var_amount, 2)
 
 def calculate_cvar(returns, portfolio_value, confidence_level=95):
-    var_threshold = np.percentile(returns, 100 - confidence_level)
-    cvar = returns[returns <= var_threshold].mean()
-    return round(cvar * portfolio_value, 2)
+    """Calculate Conditional Value at Risk (CVaR) - expected loss beyond VaR"""
+    if len(returns) == 0:
+        return 0.0
+    
+    # Get VaR threshold
+    percentile = 100 - confidence_level
+    var_threshold = np.percentile(returns, percentile)
+    
+    # CVaR is the mean of returns worse than VaR threshold
+    tail_returns = returns[returns <= var_threshold]
+    if len(tail_returns) == 0:
+        return 0.0
+    
+    cvar_threshold = tail_returns.mean()
+    cvar_amount = abs(cvar_threshold * portfolio_value)
+    return round(cvar_amount, 2)
 
 def calculate_sharpe_ratio(returns, risk_free_rate=0.05):
     """Calculate Sharpe Ratio."""
@@ -57,6 +80,66 @@ def calculate_max_drawdown(returns):
     running_max = cum_returns.cummax()
     drawdown = (cum_returns - running_max) / running_max
     return round(drawdown.min() * 100, 4)
+
+def generate_risk_recommendation(portfolio_var, portfolio_cvar, portfolio_return, max_drawdown, 
+                                portfolio_value, forecast_days, stock_results):
+    """Generate intelligent risk assessment and recommendations based on actual metrics"""
+    
+    # Calculate risk ratios
+    var_ratio = portfolio_var / portfolio_value if portfolio_value > 0 else 0
+    cvar_ratio = portfolio_cvar / portfolio_value if portfolio_value > 0 else 0
+    return_ratio = abs(portfolio_return) / 100 if portfolio_return != 0 else 0
+    
+    # Risk level assessment
+    if var_ratio > 0.15 or cvar_ratio > 0.20 or abs(max_drawdown) > 30:
+        risk_level = "Very High"
+    elif var_ratio > 0.10 or cvar_ratio > 0.15 or abs(max_drawdown) > 20:
+        risk_level = "High"
+    elif var_ratio > 0.05 or cvar_ratio > 0.10 or abs(max_drawdown) > 10:
+        risk_level = "Moderate"
+    else:
+        risk_level = "Low"
+    
+    # Generate specific recommendations
+    recommendations = []
+    
+    # Portfolio-level recommendations
+    if portfolio_return > 20:
+        recommendations.append("Strong performance! Consider taking some profits")
+    elif portfolio_return < -10:
+        recommendations.append("Significant losses. Review your investment strategy")
+    
+    if var_ratio > 0.10:
+        recommendations.append("High volatility detected. Consider diversifying your portfolio")
+    
+    if abs(max_drawdown) > 20:
+        recommendations.append("Large drawdowns observed. Consider risk management strategies")
+    
+    # Stock-specific recommendations
+    high_risk_stocks = []
+    for stock_name, stock_data in stock_results.items():
+        stock_var_ratio = stock_data.get('forecast_var', 0) / stock_data.get('position_value', 1)
+        if stock_var_ratio > 0.15:
+            high_risk_stocks.append(stock_name)
+    
+    if high_risk_stocks:
+        recommendations.append(f"High-risk stocks detected: {', '.join(high_risk_stocks)}. Consider reducing exposure")
+    
+    # Forecast-specific recommendations
+    if forecast_days > 180:
+        recommendations.append("Long-term forecast shows increased uncertainty. Monitor regularly")
+    
+    # Default recommendation if no specific issues
+    if not recommendations:
+        if risk_level == "Low":
+            recommendations.append("Portfolio looks well-balanced. Continue current strategy")
+        else:
+            recommendations.append("Monitor portfolio performance and adjust as needed")
+    
+    # Combine recommendations
+    recommendation = ". ".join(recommendations[:3])  # Limit to 3 recommendations
+    
+    return risk_level, recommendation
 
 def normalize_stock_symbol(symbol):
     """Normalize stock symbol to match StockMatcher mapping.
@@ -93,12 +176,12 @@ def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=3
     os.makedirs(output_dir, exist_ok=True)
 
     # Load data and calculate metrics
-    for stock in portfolio_stocks:
+    for i, stock in enumerate(portfolio_stocks):
         # Get and normalize stock name for case-insensitive matching
         raw_symbol = stock.get('stockName', '')
         symbol = normalize_stock_symbol(raw_symbol)
         
-        print(f"Looking for stock: '{raw_symbol}' (normalized: '{symbol}')")
+        print(f"📊 Processing stock {i+1}/{len(portfolio_stocks)}: '{raw_symbol}' (normalized: '{symbol}')")
         
         # Get quantity and buy_price
         quantity = stock.get('quantity', 0)
@@ -264,23 +347,42 @@ def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=3
         returns = all_returns_data[symbol]
         position_value = stock_weights[symbol] * portfolio_value
         
-        # Get current price from our dataframe
+        # Get current price from live API (same as calculate current risk)
         current_price = None
         try:
-            csv_path = stock_file_mapping[symbol]["path"]
-            df = pd.read_csv(csv_path)
-            if 'Close' in df.columns:
-                current_price = pd.to_numeric(df['Close'], errors='coerce').dropna().iloc[-1]
-            else:
-                # Find a suitable price column
-                for col in df.columns:
-                    if 'close' in col.lower() or 'price' in col.lower():
-                        current_price = pd.to_numeric(df[col], errors='coerce').dropna().iloc[-1]
+            # First try to get live price from Yahoo Finance
+            from utils.data_providers import get_current_price
+            try:
+                # Get the original stock name from the matching stock
+                original_stock_name = None
+                for stock in portfolio_stocks:
+                    if normalize_stock_symbol(stock.get('stockName', '')) == symbol:
+                        original_stock_name = stock.get('stockName', '')
                         break
                 
-                # If still not found, try the third column
-                if current_price is None and len(df.columns) >= 3:
-                    current_price = pd.to_numeric(df.iloc[:, 2], errors='coerce').dropna().iloc[-1]
+                if original_stock_name:
+                    current_price = get_current_price(original_stock_name)
+                    print(f"Got live price for {original_stock_name}: {current_price}")
+            except Exception as live_error:
+                print(f"Live price fetch failed for {symbol}: {str(live_error)}")
+            
+            # Fallback to CSV data if live price fails
+            if current_price is None:
+                csv_path = stock_file_mapping[symbol]["path"]
+                df = pd.read_csv(csv_path)
+                if 'Close' in df.columns:
+                    current_price = pd.to_numeric(df['Close'], errors='coerce').dropna().iloc[-1]
+                else:
+                    # Find a suitable price column
+                    for col in df.columns:
+                        if 'close' in col.lower() or 'price' in col.lower():
+                            current_price = pd.to_numeric(df[col], errors='coerce').dropna().iloc[-1]
+                            break
+                    
+                    # If still not found, try the third column
+                    if current_price is None and len(df.columns) >= 3:
+                        current_price = pd.to_numeric(df.iloc[:, 2], errors='coerce').dropna().iloc[-1]
+                        
         except Exception as e:
             print(f"Error getting current price for {symbol}: {str(e)}")
             current_price = 0
@@ -352,19 +454,75 @@ def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=3
                     'classification': _classification_metrics(actuals_arr, preds_rf_arr)
                 }
 
-            # Use Trend forecast mean as a simple multi-day forecast proxy
-            forecast_return = float(np.mean(preds_trend_arr)) if len(preds_trend_arr) > 0 else 0.0
+            # Use actual ML models for forecasting (Core USP of the project)
+            try:
+                from models.advanced_forecasting import AdvancedForecaster
+                
+                forecaster = AdvancedForecaster()
+                print(f"🤖 Using ML models for {symbol} forecast over {forecast_days} days...")
+                print(f"   Models: LSTM, Prophet, ARIMA, Random Forest")
+                print(f"   ⏱️ This may take 2-5 minutes per stock...")
+                
+                # Get actual forecast from ML models
+                import time
+                start_time = time.time()
+                forecast_returns = forecaster.ensemble_forecast(returns, forecast_days)
+                end_time = time.time()
+                
+                forecast_return = float(np.mean(forecast_returns))
+                
+                # Calculate VaR and CVaR using ML model predictions
+                forecast_var = calculate_var(pd.Series(forecast_returns), position_value, confidence_level * 100)
+                forecast_cvar = calculate_cvar(pd.Series(forecast_returns), position_value, confidence_level * 100)
+                
+                processing_time = end_time - start_time
+                print(f"✅ ML forecast for {symbol}: {len(forecast_returns)} days, mean return: {forecast_return:.4f}, VaR: {forecast_var:.2f}")
+                print(f"   ⏱️ Processing time: {processing_time:.1f} seconds")
+                
+            except Exception as e:
+                print(f"⚠️ ML forecasting failed for {symbol}: {str(e)}")
+                print(f"   Falling back to statistical methods...")
+                
+                # Fallback to statistical methods if ML fails
+                if len(preds_trend_arr) > 0:
+                    forecast_return = float(np.mean(preds_trend_arr))
+                else:
+                    forecast_return = 0.0
+                
+                # Generate statistical forecast returns
+                historical_vol = returns.std() if len(returns) > 0 else 0.02
+                historical_mean = returns.mean() if len(returns) > 0 else 0.0
+                
+                forecast_returns = []
+                np.random.seed(42 + hash(symbol) % 1000)
+                for day in range(forecast_days):
+                    trend_component = forecast_return * (1 - day * 0.001)
+                    mean_reversion = historical_mean * 0.1
+                    volatility_component = np.random.normal(0, historical_vol * 0.8)
+                    
+                    daily_return = trend_component + mean_reversion + volatility_component
+                    forecast_returns.append(daily_return)
+                
+                forecast_returns = np.array(forecast_returns)
+                forecast_var = calculate_var(pd.Series(forecast_returns), position_value, confidence_level * 100)
+                forecast_cvar = calculate_cvar(pd.Series(forecast_returns), position_value, confidence_level * 100)
+                
+                print(f"📊 Statistical fallback for {symbol}: VaR: {forecast_var:.2f}")
 
             stock_results[matching_stock.get('stockName', symbol)] = {
                 'quantity': int(quantity),
-                'current_price': float(current_price) if current_price is not None else 0,
+                'current_price': float(current_price) if current_price is not None else 0.0,
                 'buy_price': int(buy_price),
                 'position_value': float(position_value),
                 'weight': float(stock_weights[symbol]),
-                'profit_loss': float((current_price - buy_price) * quantity) if current_price is not None else 0,
-                'roi': float(((current_price - buy_price) / buy_price) * 100) if buy_price > 0 and current_price is not None else 0,
+                'profit_loss': float((current_price - buy_price) * quantity) if current_price is not None else 0.0,
+                'roi': float(((current_price - buy_price) / buy_price) * 100) if buy_price > 0 and current_price is not None else 0.0,
                 'max_drawdown': float(calculate_max_drawdown(returns)),
-                'forecast_return': forecast_return,
+                'forecast_return': float(forecast_return),
+                'forecast_var': float(forecast_var),
+                'forecast_cvar': float(forecast_cvar),
+                'forecast_days': int(forecast_days),
+                'forecast_returns': [float(x) for x in forecast_returns.tolist()],  # Ensure all floats
                 'performance': model_performance
             }
 
@@ -391,17 +549,29 @@ def predict_portfolio_risk(stock_file_mapping, portfolio_stocks, forecast_days=3
             portfolio_sharpe = calculate_sharpe_ratio(portfolio_returns)
             portfolio_max_drawdown = calculate_max_drawdown(portfolio_returns)
 
+            # Generate intelligent risk assessment
+            risk_level, recommendation = generate_risk_recommendation(
+                portfolio_var, portfolio_cvar, (total_profit_loss / portfolio_value) * 100 if portfolio_value > 0 else 0,
+                portfolio_max_drawdown, portfolio_value, forecast_days, stock_results
+            )
+            
+            print(f"🎯 Portfolio analysis complete!")
+            print(f"   📊 Total stocks processed: {len(stock_results)}")
+            print(f"   💰 Portfolio value: ₹{portfolio_value:,.2f}")
+            print(f"   📈 Portfolio return: {((total_profit_loss / portfolio_value) * 100):.2f}%" if portfolio_value > 0 else "0.00%")
+            print(f"   ⚠️ Risk level: {risk_level}")
+            
             output = {
                 "portfolio_summary": {
-                    "Total Portfolio Value": f"₹{portfolio_value:,.2f}",
-                    "Total Profit/Loss": f"₹{total_profit_loss:,.2f}",
-                    "Portfolio Return": f"{(total_profit_loss / portfolio_value) * 100:.2f}%" if portfolio_value > 0 else "0.00%",
-                    "Value at Risk (VaR)": f"₹{abs(portfolio_var):,.2f}",
-                    "Conditional VaR (CVaR)": f"₹{abs(portfolio_cvar):,.2f}",
-                    "Sharpe Ratio": round(portfolio_sharpe, 2),
-                    "Maximum Drawdown": f"{abs(portfolio_max_drawdown):.2f}%",
-                    "Risk Level": "High" if portfolio_sharpe < 0.5 else "Moderate" if portfolio_sharpe < 1 else "Low",
-                    "Recommendation": "Hold" if portfolio_sharpe > 1 else "Consider rebalancing"
+                    "Total Portfolio Value": f"₹{float(portfolio_value):,.2f}",
+                    "Total Profit/Loss": f"₹{float(total_profit_loss):,.2f}",
+                    "Portfolio Return": f"{(float(total_profit_loss) / float(portfolio_value)) * 100:.2f}%" if portfolio_value > 0 else "0.00%",
+                    "Value at Risk (VaR)": f"₹{abs(float(portfolio_var)):,.2f}",
+                    "Conditional VaR (CVaR)": f"₹{abs(float(portfolio_cvar)):,.2f}",
+                    "Sharpe Ratio": float(round(portfolio_sharpe, 2)),
+                    "Maximum Drawdown": f"{abs(float(portfolio_max_drawdown)):.2f}%",
+                    "Risk Level": str(risk_level),
+                    "Recommendation": str(recommendation)
                 },
                 "individual_stocks": stock_results
             }
